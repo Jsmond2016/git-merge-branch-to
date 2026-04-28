@@ -3,6 +3,8 @@
 .history/
 .idea/
 *.log
+.pnpm-store/
+.pnpm-debug.log*
 node_modules
 out
 .vscode-test/
