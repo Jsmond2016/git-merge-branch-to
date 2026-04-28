@@ -75,24 +75,8 @@ async function workTreeFlows({
           runGitCommand(`git -C "${worktreePath}" fetch origin`);
 
           progress.report({ message: '切换到目标分支...' });
-          try {
-            runGitCommand(
-              `git -C "${worktreePath}" checkout "${targetBranch}"`
-            );
-          } catch {
-            try {
-              runGitCommand(
-                `git -C "${worktreePath}" checkout -b "${targetBranch}" "origin/${targetBranch}"`
-              );
-            } catch {
-              runGitCommand(
-                `git -C "${worktreePath}" checkout --track "origin/${targetBranch}"`
-              );
-            }
-          }
-
           runGitCommand(
-            `git -C "${worktreePath}" pull origin "${targetBranch}"`
+            `git -C "${worktreePath}" checkout --detach "origin/${targetBranch}"`
           );
 
           progress.report({ message: '合并分支...' });
@@ -121,7 +105,7 @@ async function workTreeFlows({
 
           progress.report({ message: '推送到远程...' });
           runGitCommand(
-            `git -C "${worktreePath}" push origin "${targetBranch}"`
+            `git -C "${worktreePath}" push origin "HEAD:${targetBranch}"`
           );
 
           void vscode.window.showInformationMessage(
