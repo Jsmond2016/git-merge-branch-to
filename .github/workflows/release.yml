@@ -1,0 +1,68 @@
+name: Release Plugin
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: startsWith(github.event.head_commit.message, 'chore(release):')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract version from commit message
+        id: extract_version
+        run: |
+          MESSAGE="${{ github.event.head_commit.message }}"
+          VERSION=$(echo "$MESSAGE" | grep -oP 'chore\(release\): \K[\d\.]+')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.23.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Compile
+        run: pnpm run compile
+
+      - name: Package
+        run: npx @vscode/vsce@latest package --allow-missing-repository --no-dependencies --allow-star-activation
+
+      - name: Find .vsix file
+        id: find_vsix
+        run: |
+          VSIX_FILE=$(ls *.vsix | head -n 1)
+          echo "vsix_file=$VSIX_FILE" >> $GITHUB_OUTPUT
+          echo "Found .vsix file: $VSIX_FILE"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.extract_version.outputs.version }}
+          name: Release ${{ steps.extract_version.outputs.version }}
+          body: |
+            ## 更新内容
+
+            版本: ${{ steps.extract_version.outputs.version }}
+
+            ### 插件包
+            下载下方的 .vsix 文件即可安装插件
+          files: |
+            ${{ steps.find_vsix.outputs.vsix_file }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
