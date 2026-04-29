@@ -17,6 +17,8 @@ type WorktreeFlowOptions = {
 type DeployUrlConfig = {
   env: string;
   defaultBranch?: string;
+  autoTriggleFlow?: boolean;
+  delayTriggleTime?: number;
   webUrl?: string;
   serverWebhookMap?: Record<
     string,
@@ -46,7 +48,9 @@ async function workTreeFlows({
   repoPath,
   sourceBranch,
   targetBranch,
-}: WorktreeFlowOptions): Promise<void> {
+}: WorktreeFlowOptions): Promise<boolean> {
+  let isMergeSuccess = false;
+
   await vscode.window
     .withProgress(
       {
@@ -108,6 +112,8 @@ async function workTreeFlows({
             `git -C "${worktreePath}" push origin "HEAD:${targetBranch}"`
           );
 
+          isMergeSuccess = true;
+
           void vscode.window.showInformationMessage(
             `✅ 合并分支 ${sourceBranch} -> ${targetBranch} 成功（后台执行）`
           );
@@ -134,32 +140,21 @@ async function workTreeFlows({
 
         progress.report({ message: '完成' });
       }
-    )
-    .then(() => triggerWebhooks());
+    );
+
+  return isMergeSuccess;
 }
 
-async function triggerWebhooks(): Promise<void> {
+function getDeployUrlConfigs(): DeployUrlConfig[] {
   const config = vscode.workspace.getConfiguration('gitMergeBranchTo');
   const deployConfig = config.get<{ urlConfig?: DeployUrlConfig[] }>(
     'deployConfig'
   );
-  const urlConfigs = deployConfig?.urlConfig ?? [];
-  const branches = config.get<string[]>('branches') ?? [];
+  return deployConfig?.urlConfig ?? [];
+}
 
-  if (!urlConfigs.length || !branches.length) {
-    return;
-  }
-
-  const envList = urlConfigs.map((item) => item.env);
-  const selectedEnv = await vscode.window.showQuickPick([CANCEL, ...envList], {
-    canPickMany: false,
-    placeHolder: '选择要触发webhook的环境',
-  });
-
-  if (!selectedEnv || selectedEnv === CANCEL) {
-    return;
-  }
-
+async function triggerWebhookForEnv(envConfig: DeployUrlConfig): Promise<void> {
+  const config = vscode.workspace.getConfiguration('gitMergeBranchTo');
   const projectName = await getGitProjectName();
   if (!projectName) {
     void vscode.window.showErrorMessage(
@@ -168,7 +163,6 @@ async function triggerWebhooks(): Promise<void> {
     return;
   }
 
-  const envConfig = urlConfigs.find((item) => item.env === selectedEnv);
   const projectWebhookConfig = envConfig?.serverWebhookMap?.[projectName];
   if (!envConfig || !projectWebhookConfig?.hookUrl) {
     void vscode.window.showErrorMessage(`未找到 ${projectName} 的配置信息`);
@@ -204,6 +198,95 @@ async function triggerWebhooks(): Promise<void> {
   }
 }
 
+async function triggerWebhooks(): Promise<void> {
+  const config = vscode.workspace.getConfiguration('gitMergeBranchTo');
+  const urlConfigs = getDeployUrlConfigs();
+  const branches = config.get<string[]>('branches') ?? [];
+
+  if (!urlConfigs.length || !branches.length) {
+    return;
+  }
+
+  const envList = urlConfigs.map((item) => item.env);
+  const selectedEnv = await vscode.window.showQuickPick([CANCEL, ...envList], {
+    canPickMany: false,
+    placeHolder: '选择要触发webhook的环境',
+  });
+
+  if (!selectedEnv || selectedEnv === CANCEL) {
+    return;
+  }
+
+  const envConfig = urlConfigs.find((item) => item.env === selectedEnv);
+  if (!envConfig) {
+    return;
+  }
+
+  await triggerWebhookForEnv(envConfig);
+}
+
+function getAutoTriggerEnvConfig(
+  targetBranch: string
+): DeployUrlConfig | undefined {
+  return getDeployUrlConfigs().find(
+    (item) => item.defaultBranch === targetBranch && item.autoTriggleFlow
+  );
+}
+
+function getDelayTriggerTime(envConfig: DeployUrlConfig): number {
+  if (
+    typeof envConfig.delayTriggleTime !== 'number' ||
+    Number.isNaN(envConfig.delayTriggleTime)
+  ) {
+    return 6;
+  }
+
+  return Math.max(0, Math.floor(envConfig.delayTriggleTime));
+}
+
+async function startAutoTriggerCountdown(
+  targetBranch: string,
+  envConfig: DeployUrlConfig
+): Promise<void> {
+  let secondsRemaining = getDelayTriggerTime(envConfig);
+  let isCancelled = false;
+
+  if (secondsRemaining === 0) {
+    await triggerWebhookForEnv(envConfig);
+    return;
+  }
+
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: `代码合并到 ${targetBranch} 成功，将在 ${secondsRemaining}s 内自动触发 ${envConfig.env} 构建流程`,
+      cancellable: true,
+    },
+    async (progress, token) => {
+      token.onCancellationRequested(() => {
+        isCancelled = true;
+      });
+
+      while (secondsRemaining > 0 && !isCancelled) {
+        progress.report({
+          message: `${secondsRemaining}s 后自动触发 ${envConfig.env} 构建流程，点击取消可终止`,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        secondsRemaining -= 1;
+      }
+    }
+  );
+
+  if (isCancelled) {
+    void vscode.window.showInformationMessage(
+      `已取消自动触发 ${envConfig.env} 构建流程`
+    );
+    return;
+  }
+
+  await triggerWebhookForEnv(envConfig);
+}
+
 function getCurrentBranchName(): string {
   const gitExtension = vscode.extensions.getExtension('vscode.git')?.exports;
   const gitApi = gitExtension?.getAPI(1);
@@ -222,10 +305,26 @@ function getCurrentBranchName(): string {
   return branchName;
 }
 
-function execFlow(targetBranch: string): void {
+async function execFlow(targetBranch: string): Promise<void> {
   const sourceBranch = getCurrentBranchName();
   const repoPath = getWorkspaceRootPath();
-  void workTreeFlows({ repoPath, targetBranch, sourceBranch });
+  const isMergeSuccess = await workTreeFlows({
+    repoPath,
+    targetBranch,
+    sourceBranch,
+  });
+
+  if (!isMergeSuccess) {
+    return;
+  }
+
+  const autoTriggerEnvConfig = getAutoTriggerEnvConfig(targetBranch);
+  if (autoTriggerEnvConfig) {
+    await startAutoTriggerCountdown(targetBranch, autoTriggerEnvConfig);
+    return;
+  }
+
+  await triggerWebhooks();
 }
 
 async function manageWorktrees(): Promise<void> {
@@ -258,7 +357,7 @@ async function manageWorktrees(): Promise<void> {
       }
     }
 
-    execFlow(targetBranch);
+    void execFlow(targetBranch);
     return;
   }
 
@@ -271,7 +370,7 @@ async function manageWorktrees(): Promise<void> {
     return;
   }
 
-  execFlow(targetBranch);
+  void execFlow(targetBranch);
 }
 
 export function activate(context: vscode.ExtensionContext): void {

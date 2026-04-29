@@ -4,6 +4,19 @@ All notable changes to the "merge-code" extension will be documented in this fil
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.3.4] - 2026-04-29
+
+### Added
+- `deployConfig.urlConfig` 新增 `autoTriggleFlow` 配置，默认 `false`
+- `deployConfig.urlConfig` 新增 `delayTriggleTime` 配置，单位秒，默认 `6`
+- 合并成功后支持按目标分支自动匹配环境并显示倒计时提示
+
+### Changed
+- 仅在代码合并和推送成功后才继续执行部署触发流程
+- 当 `autoTriggleFlow` 为 `true` 时，匹配到的环境会在倒计时结束后自动触发 webhook
+- 当 `delayTriggleTime` 为 `0` 时，跳过倒计时立即触发 webhook
+- 未开启自动触发时，保持原有手动选择环境的行为
+
 ## [1.2.2] - 2025-11-28
 
 ### 🚀 Major Performance Improvement

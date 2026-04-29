@@ -51,8 +51,10 @@
     "projectList": ["monkey-cms-web-new", "monkey-saas-enterprise-web", "monkey-saas-web"], // 没用。跟 webstorm 的配置保持一致
     "urlConfig": [ // 流水线的 url 配置列表
       {
-        "env": "dev", // 环境
+        "env": "fat", // 环境
         "defaultBranch": "develop", // 流水线的默认部署分支
+        "autoTriggleFlow": true, // 是否在合并到 defaultBranch 成功后，6 秒倒计时自动触发该环境流水线。默认 false
+        "delayTriggleTime": 6, // 自动触发倒计时，单位秒。0 表示立即执行；默认 6
         "clientWebhookList": [], // 没用。跟 webstorm 的配置保持一致
         "serverWebhookMap": { // 关键配置。项目及其流水线配置
           "project-name": { // 项目名称
