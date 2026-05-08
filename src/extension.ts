@@ -51,96 +51,93 @@ async function workTreeFlows({
 }: WorktreeFlowOptions): Promise<boolean> {
   let isMergeSuccess = false;
 
-  await vscode.window
-    .withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: '后台合并分支中...',
-        cancellable: false,
-      },
-      async (progress) => {
-        const randomId = crypto.randomBytes(8).toString('hex');
-        const worktreePath = `${os.tmpdir()}/vscode-merge-${targetBranch}-${randomId}`;
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: '后台合并分支中...',
+      cancellable: false,
+    },
+    async (progress) => {
+      const randomId = crypto.randomBytes(8).toString('hex');
+      const worktreePath = `${os.tmpdir()}/vscode-merge-${targetBranch}-${randomId}`;
 
-        progress.report({ message: '创建临时工作区...' });
-        try {
-          runGitCommand(
-            `git -C "${repoPath}" worktree add --detach "${worktreePath}"`
-          );
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          void vscode.window.showErrorMessage(`创建临时工作区失败: ${message}`);
-          return;
-        }
-
-        try {
-          progress.report({ message: '获取最新分支信息...' });
-          runGitCommand(`git -C "${worktreePath}" fetch origin`);
-
-          progress.report({ message: '切换到目标分支...' });
-          runGitCommand(
-            `git -C "${worktreePath}" checkout --detach "origin/${targetBranch}"`
-          );
-
-          progress.report({ message: '合并分支...' });
-          try {
-            runGitCommand(
-              `git -C "${worktreePath}" merge --no-ff --no-verify "${sourceBranch}" -m "Merge ${sourceBranch} into ${targetBranch}"`
-            );
-          } catch (error) {
-            const status = runGitCommand(`git -C "${worktreePath}" status`);
-            if (
-              status.includes('Unmerged paths') ||
-              status.includes('CONFLICT')
-            ) {
-              void vscode.window.showErrorMessage(
-                `合并分支失败 ${sourceBranch} -> ${targetBranch}. 存在代码冲突，请手动处理。`
-              );
-            } else {
-              const message =
-                error instanceof Error ? error.message : String(error);
-              void vscode.window.showErrorMessage(
-                `合并分支失败 ${sourceBranch} -> ${targetBranch}. ${message}`
-              );
-            }
-            throw error;
-          }
-
-          progress.report({ message: '推送到远程...' });
-          runGitCommand(
-            `git -C "${worktreePath}" push origin "HEAD:${targetBranch}"`
-          );
-
-          isMergeSuccess = true;
-
-          void vscode.window.showInformationMessage(
-            `✅ 合并分支 ${sourceBranch} -> ${targetBranch} 成功（后台执行）`
-          );
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          if (!message.includes('合并分支失败')) {
-            void vscode.window.showErrorMessage(`操作失败: ${message}`);
-          }
-        } finally {
-          progress.report({ message: '清理临时文件...' });
-          try {
-            runGitCommand(
-              `git -C "${repoPath}" worktree remove "${worktreePath}" --force`
-            );
-          } catch {
-            try {
-              fs.rmSync(worktreePath, { recursive: true, force: true });
-            } catch (cleanupError) {
-              console.error('清理临时目录失败:', cleanupError);
-            }
-          }
-        }
-
-        progress.report({ message: '完成' });
+      progress.report({ message: '创建临时工作区...' });
+      try {
+        runGitCommand(
+          `git -C "${repoPath}" worktree add --detach "${worktreePath}"`
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        void vscode.window.showErrorMessage(`创建临时工作区失败: ${message}`);
+        return;
       }
-    );
+
+      try {
+        progress.report({ message: '获取最新分支信息...' });
+        runGitCommand(`git -C "${worktreePath}" fetch origin`);
+
+        progress.report({ message: '切换到目标分支...' });
+        runGitCommand(
+          `git -C "${worktreePath}" checkout --detach "origin/${targetBranch}"`
+        );
+
+        progress.report({ message: '合并分支...' });
+        try {
+          runGitCommand(
+            `git -C "${worktreePath}" merge --no-ff --no-verify "${sourceBranch}" -m "Merge ${sourceBranch} into ${targetBranch}"`
+          );
+        } catch (error) {
+          const status = runGitCommand(`git -C "${worktreePath}" status`);
+          if (
+            status.includes('Unmerged paths') ||
+            status.includes('CONFLICT')
+          ) {
+            void vscode.window.showErrorMessage(
+              `合并分支失败 ${sourceBranch} -> ${targetBranch}. 存在代码冲突，请手动处理。`
+            );
+          } else {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            void vscode.window.showErrorMessage(
+              `合并分支失败 ${sourceBranch} -> ${targetBranch}. ${message}`
+            );
+          }
+          throw error;
+        }
+
+        progress.report({ message: '推送到远程...' });
+        runGitCommand(
+          `git -C "${worktreePath}" push origin "HEAD:${targetBranch}"`
+        );
+
+        isMergeSuccess = true;
+
+        void vscode.window.showInformationMessage(
+          `✅ 合并分支 ${sourceBranch} -> ${targetBranch} 成功（后台执行）`
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!message.includes('合并分支失败')) {
+          void vscode.window.showErrorMessage(`操作失败: ${message}`);
+        }
+      } finally {
+        progress.report({ message: '清理临时文件...' });
+        try {
+          runGitCommand(
+            `git -C "${repoPath}" worktree remove "${worktreePath}" --force`
+          );
+        } catch {
+          try {
+            fs.rmSync(worktreePath, { recursive: true, force: true });
+          } catch (cleanupError) {
+            console.error('清理临时目录失败:', cleanupError);
+          }
+        }
+      }
+
+      progress.report({ message: '完成' });
+    }
+  );
 
   return isMergeSuccess;
 }
@@ -207,17 +204,27 @@ async function triggerWebhooks(): Promise<void> {
     return;
   }
 
-  const envList = urlConfigs.map((item) => item.env);
-  const selectedEnv = await vscode.window.showQuickPick([CANCEL, ...envList], {
+  const envItems = [
+    {
+      label: CANCEL,
+      detail: '关闭当前发布环境选择',
+    },
+    ...urlConfigs.map((item) => ({
+      label: item.env,
+      detail: `触发 ${item.env} 环境的 webhook 发布流程`,
+    })),
+  ];
+
+  const selectedEnv = await vscode.window.showQuickPick(envItems, {
     canPickMany: false,
     placeHolder: '选择要触发webhook的环境',
   });
 
-  if (!selectedEnv || selectedEnv === CANCEL) {
+  if (!selectedEnv || selectedEnv.label === CANCEL) {
     return;
   }
 
-  const envConfig = urlConfigs.find((item) => item.env === selectedEnv);
+  const envConfig = urlConfigs.find((item) => item.env === selectedEnv.label);
   if (!envConfig) {
     return;
   }
@@ -361,16 +368,21 @@ async function manageWorktrees(): Promise<void> {
     return;
   }
 
-  const targetBranch = await vscode.window.showQuickPick(branches, {
+  const branchItems = branches.map((branch) => ({
+    label: branch,
+    detail: `将当前分支合并到 ${branch}`,
+  }));
+
+  const selectedBranch = await vscode.window.showQuickPick(branchItems, {
     canPickMany: false,
     placeHolder: '选择你要合并到哪个分支',
   });
 
-  if (!targetBranch || targetBranch === CANCEL) {
+  if (!selectedBranch) {
     return;
   }
 
-  void execFlow(targetBranch);
+  void execFlow(selectedBranch.label);
 }
 
 export function activate(context: vscode.ExtensionContext): void {
